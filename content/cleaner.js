@@ -232,7 +232,7 @@
       let searchIdx = 0;
 
       while (searchIdx < this.buffer.length) {
-        const match = this.buffer.slice(searchIdx).match(/[.!?](\s+|$)|(\n\n+)/);
+        const match = this.buffer.slice(searchIdx).match(/[.!?]\s+|(\n\n+)/);
         if (!match) break;
 
         const matchOffset = searchIdx + match.index;

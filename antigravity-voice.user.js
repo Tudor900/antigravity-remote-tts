@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Antigravity Voice - AI Chat Text-to-Speech
 // @namespace    https://antigravity.google.com/
-// @version      1.0.4
+// @version      1.0.5
 // @description  Streaming sentence-by-sentence text-to-speech for Antigravity Remote AI chat responses.
 // @author       Antigravity Pair Programmer
 // @match        https://antigravity.google.com/r/*
@@ -263,7 +263,7 @@
       let searchIdx = 0;
 
       while (searchIdx < this.buffer.length) {
-        const match = this.buffer.slice(searchIdx).match(/[.!?](\s+|$)|(\n\n+)/);
+        const match = this.buffer.slice(searchIdx).match(/[.!?]\s+|(\n\n+)/);
         if (!match) break;
 
         const matchOffset = searchIdx + match.index;
@@ -811,9 +811,10 @@
  * Antigravity Voice - ChatObserver
  * Observes the Antigravity Remote chat DOM for:
  * 1. Incoming AI responses via [aria-label="Agent response"].
- * 2. Completely ignores and strips thinking/reasoning blocks.
- * 3. Code blocks and file badges.
- * 4. User submission events for instant speech interruption.
+ * 2. Real-time token streaming using monotonic length tracking (strictly prevents sentence repeats).
+ * 3. Completely ignores and strips thinking/reasoning blocks.
+ * 4. Code blocks and file announcements.
+ * 5. User submission events for instant speech interruption.
  */
 
 (function (root, factory) {
@@ -833,22 +834,14 @@
       this.streamer = new cleanerModule.SentenceStreamer(this.options);
 
       this.observer = null;
-      this.activeResponseNode = null;
-      this.lastProcessedText = '';
+      this.currentArticle = null;
+      this.lastProcessedLength = 0;
       this.turnCompletionTimer = null;
-      this.debounceDelay = 1200;
+      this.debounceDelay = 1000;
 
       // Antigravity exact DOM selectors
       this.selectors = {
         agentArticle: '[aria-label="Agent response"]',
-        markdownContent: '.leading-relaxed.select-text',
-        userArticle: '[aria-label="User message"], [aria-label="User prompt"]',
-        thinkingContainers: [
-          '.cursor-edit',
-          '[data-testid="thinking-collapsible-trigger"]',
-          '[data-testid="worked-for-collapsible"]',
-          '.text-secondary-foreground'
-        ],
         ignoreElements: [
           'style',
           'script',
@@ -878,103 +871,64 @@
       this.scanExistingDOM();
     }
 
-    isThinkingElement(el) {
-      if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
-
-      for (const sel of this.selectors.thinkingContainers) {
-        if (el.matches && el.matches(sel)) return true;
-        if (el.closest && el.closest(sel)) return true;
-      }
-
-      // Check if inside a collapsible holding a thinking trigger
-      if (el.closest) {
-        const rel = el.closest('.relative');
-        if (rel && (rel.querySelector('[data-testid="thinking-collapsible-trigger"]') || rel.querySelector('[data-testid="worked-for-collapsible"]'))) {
-          return true;
-        }
-      }
-
-      return false;
-    }
-
-    findRealResponseContent(article) {
-      if (!article) return null;
-
-      // Find markdown containers inside article that are NOT in thinking
-      const markdowns = article.querySelectorAll(this.selectors.markdownContent);
-      for (let i = markdowns.length - 1; i >= 0; i--) {
-        const md = markdowns[i];
-        if (!this.isThinkingElement(md)) {
-          return md;
-        }
-      }
-
-      // Check .px-2.py-1 (Antigravity's response body wrapper)
-      const pxDiv = article.querySelector('.px-2.py-1');
-      if (pxDiv && !this.isThinkingElement(pxDiv)) {
-        return pxDiv.querySelector(this.selectors.markdownContent) || pxDiv;
-      }
-
-      return null;
-    }
-
     scanExistingDOM() {
       const articles = document.querySelectorAll(this.selectors.agentArticle);
       if (articles.length > 0) {
-        const lastArticle = articles[articles.length - 1];
-        const content = this.findRealResponseContent(lastArticle);
-        if (content) {
-          this.activeResponseNode = content;
-          this.lastProcessedText = this.extractCleanText(content);
-          console.log('[Antigravity Voice] Initialized on last agent response.');
-        }
+        this.currentArticle = articles[articles.length - 1];
+        const text = this.extractCleanText(this.currentArticle);
+        this.lastProcessedLength = text.length;
+        console.log('[Antigravity Voice] Initialized on existing response (length:', this.lastProcessedLength, ')');
       }
     }
 
     setupDOMObserver() {
       this.observer = new MutationObserver((mutations) => {
+        let shouldProcess = false;
+
         for (const mutation of mutations) {
-          // Check newly added nodes
+          // 1. Check for newly added nodes
           if (mutation.type === 'childList') {
             for (const node of mutation.addedNodes) {
               if (node.nodeType === Node.ELEMENT_NODE) {
-                // Ignore thinking elements immediately
-                if (this.isThinkingElement(node)) {
-                  continue;
+                let article = null;
+                if (node.matches && node.matches(this.selectors.agentArticle)) {
+                  article = node;
+                } else if (node.querySelector) {
+                  article = node.querySelector(this.selectors.agentArticle);
                 }
-                this.checkNewElement(node);
+
+                if (article && article !== this.currentArticle) {
+                  this.switchToNewArticle(article);
+                  return;
+                }
               }
             }
           }
 
-          // Check streaming text updates inside active response
-          if (mutation.type === 'characterData' || mutation.type === 'childList') {
-            const targetEl = mutation.target.nodeType === Node.ELEMENT_NODE 
-              ? mutation.target 
+          // 2. Check if mutation occurred inside current article
+          if (this.currentArticle) {
+            const target = mutation.target.nodeType === Node.ELEMENT_NODE
+              ? mutation.target
               : mutation.target.parentElement;
 
-            if (targetEl) {
-              // Ignore any mutations inside thinking blocks
-              if (this.isThinkingElement(targetEl)) {
-                continue;
-              }
-
-              if (this.activeResponseNode && (this.activeResponseNode === targetEl || this.activeResponseNode.contains(targetEl))) {
-                this.handleTextDelta();
-              } else {
-                // Check if target is inside an agent article
-                const article = targetEl.closest ? targetEl.closest(this.selectors.agentArticle) : null;
-                if (article) {
-                  const content = this.findRealResponseContent(article);
-                  if (content && this.activeResponseNode !== content) {
-                    this.startNewTurn(content);
-                  } else if (content && this.activeResponseNode === content) {
-                    this.handleTextDelta();
-                  }
-                }
-              }
+            if (target && (target === this.currentArticle || this.currentArticle.contains(target))) {
+              shouldProcess = true;
+            }
+          } else {
+            // If no current article, see if any article exists
+            const target = mutation.target.nodeType === Node.ELEMENT_NODE
+              ? mutation.target
+              : mutation.target.parentElement;
+            const article = target?.closest ? target.closest(this.selectors.agentArticle) : null;
+            if (article) {
+              this.switchToNewArticle(article);
+              return;
             }
           }
+        }
+
+        if (shouldProcess && this.currentArticle) {
+          this.processArticleDelta();
         }
       });
 
@@ -985,47 +939,27 @@
       });
     }
 
-    checkNewElement(element) {
-      if (this.isThinkingElement(element)) return;
-
-      let article = null;
-      if (element.matches && element.matches(this.selectors.agentArticle)) {
-        article = element;
-      } else if (element.querySelector) {
-        article = element.querySelector(this.selectors.agentArticle);
-      }
-
-      if (article) {
-        const content = this.findRealResponseContent(article);
-        if (content) {
-          this.startNewTurn(content);
-        }
-      }
-    }
-
-    startNewTurn(node) {
-      if (this.activeResponseNode === node) return;
-      if (this.isThinkingElement(node)) return;
+    switchToNewArticle(article) {
+      if (!article || article === this.currentArticle) return;
 
       this.finishCurrentTurn();
 
-      console.log('[Antigravity Voice] Hooked into real AI response stream (thoughts excluded).');
-      this.activeResponseNode = node;
-      this.lastProcessedText = '';
+      console.log('[Antigravity Voice] Switched to new AI response article.');
+      this.currentArticle = article;
+      this.lastProcessedLength = 0;
       this.streamer.reset();
 
-      this.handleTextDelta();
+      this.processArticleDelta();
     }
 
-    handleTextDelta() {
-      if (!this.activeResponseNode) return;
-      if (this.isThinkingElement(this.activeResponseNode)) return;
+    processArticleDelta() {
+      if (!this.currentArticle) return;
 
-      const currentText = this.extractCleanText(this.activeResponseNode);
+      const fullCleanText = this.extractCleanText(this.currentArticle);
 
-      if (currentText.length > this.lastProcessedText.length) {
-        const delta = currentText.slice(this.lastProcessedText.length);
-        this.lastProcessedText = currentText;
+      if (fullCleanText.length > this.lastProcessedLength) {
+        const delta = fullCleanText.slice(this.lastProcessedLength);
+        this.lastProcessedLength = fullCleanText.length;
 
         const newSentences = this.streamer.feed(delta);
         for (const sentence of newSentences) {
@@ -1038,21 +972,22 @@
     }
 
     extractCleanText(rootNode) {
+      if (!rootNode) return '';
       const clone = rootNode.cloneNode(true);
 
-      // Strip collapsible thinking containers completely
+      // Remove thinking collapsible containers completely
       clone.querySelectorAll('[data-testid="thinking-collapsible-trigger"], [data-testid="worked-for-collapsible"]').forEach(btn => {
         const container = btn.closest('.relative') || btn.parentElement;
         if (container) container.remove();
         else btn.remove();
       });
 
-      // Strip any other unwanted elements
+      // Remove remaining ignore elements
       for (const sel of this.selectors.ignoreElements) {
         clone.querySelectorAll(sel).forEach(el => el.remove());
       }
 
-      // Detect and replace code blocks with clean file name announcements
+      // Process code blocks for clean file name announcements
       const preElements = clone.querySelectorAll('pre, .code-block, [data-code-block]');
       preElements.forEach((pre) => {
         if (this.options && this.options.announceFiles === false) {
@@ -1120,14 +1055,10 @@
         this.turnCompletionTimer = null;
       }
 
-      if (this.activeResponseNode) {
-        const finalSentences = this.streamer.flush();
-        for (const sentence of finalSentences) {
-          console.log('[Antigravity Voice] Speaking final sentence:', sentence);
-          this.engine.enqueue(sentence);
-        }
-        this.activeResponseNode = null;
-        this.lastProcessedText = '';
+      const finalSentences = this.streamer.flush();
+      for (const sentence of finalSentences) {
+        console.log('[Antigravity Voice] Speaking final sentence:', sentence);
+        this.engine.enqueue(sentence);
       }
     }
 
