@@ -28,32 +28,29 @@
       this.turnCompletionTimer = null;
       this.debounceDelay = 1200;
 
-      // Selectors - including Antigravity's internal .animate-markdown streaming container
+      // Selectors matching Antigravity's actual React DOM structure
       this.selectors = {
+        // Antigravity markdown response containers
         assistantMessages: [
+          '.leading-relaxed.select-text',
           '.animate-markdown',
+          '[data-testid="conversation-view"] div.leading-relaxed',
           '[data-role="assistant"]',
           '[data-message-author="model"]',
-          '[data-message-author="assistant"]',
           '.assistant-message',
           '.model-response',
-          '.agent-response',
-          '.cortex-response',
-          '.rendered-markdown'
+          '.agent-response'
         ],
         userMessages: [
           '[data-role="user"]',
           '[data-message-author="user"]',
           '.user-message',
-          '.human-message',
-          '.user-turn'
+          '.human-message'
         ],
         toolOutputs: [
           '.terminal-output',
           '.tool-execution',
           '.task-log',
-          '.system-message',
-          '.diff-view',
           '[data-step-type="tool"]'
         ]
       };
@@ -72,6 +69,9 @@
       this.setupDOMObserver(document);
       this.setupUserInterruption(document);
 
+      // Check if conversation view is already mounted
+      this.scanExistingDOM();
+
       // Also observe any iframes if present
       document.querySelectorAll('iframe').forEach(frame => {
         try {
@@ -83,15 +83,25 @@
       });
     }
 
+    scanExistingDOM() {
+      const candidates = document.querySelectorAll(this.selectors.assistantMessages.join(', '));
+      if (candidates.length > 0) {
+        const lastCandidate = candidates[candidates.length - 1];
+        console.log('[Antigravity Voice] Found active response container in DOM.');
+        this.activeResponseNode = lastCandidate;
+        this.lastProcessedText = this.extractTextWithFileAnnouncements(lastCandidate);
+      }
+    }
+
     setupDOMObserver(doc) {
       if (!doc || !doc.body) return;
 
       const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
+          // Check for newly added nodes
           if (mutation.type === 'childList') {
             for (const node of mutation.addedNodes) {
               if (node.nodeType === Node.ELEMENT_NODE) {
-                // If a new iframe was added, observe its document too
                 if (node.tagName === 'IFRAME') {
                   try {
                     if (node.contentDocument) {
@@ -105,13 +115,22 @@
             }
           }
 
+          // Streaming text or child updates
           if (mutation.type === 'characterData' || mutation.type === 'childList') {
             const targetEl = mutation.target.nodeType === Node.ELEMENT_NODE 
               ? mutation.target 
               : mutation.target.parentElement;
 
-            if (targetEl && this.isWithinActiveResponse(targetEl)) {
-              this.handleTextDelta();
+            if (targetEl) {
+              if (this.isWithinActiveResponse(targetEl)) {
+                this.handleTextDelta();
+              } else {
+                // Check if target is an assistant message container
+                const match = this.findAssistantAncestor(targetEl);
+                if (match) {
+                  this.startNewTurn(match);
+                }
+              }
             }
           }
         }
@@ -134,6 +153,7 @@
           const activeEl = doc.activeElement;
           if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT' || activeEl.isContentEditable)) {
             if (this.engine.isSpeaking) {
+              console.log('[Antigravity Voice] User prompt sent, stopping speech.');
               this.engine.stop();
             }
           }
@@ -143,9 +163,21 @@
       doc.addEventListener('click', (e) => {
         const sendBtn = e.target.closest('button[type="submit"], button[aria-label*="send" i], button[title*="send" i]');
         if (sendBtn && this.engine.isSpeaking) {
+          console.log('[Antigravity Voice] Send clicked, stopping speech.');
           this.engine.stop();
         }
       }, true);
+    }
+
+    findAssistantAncestor(element) {
+      for (const sel of this.selectors.assistantMessages) {
+        if (element.matches && element.matches(sel)) return element;
+        if (element.closest) {
+          const found = element.closest(sel);
+          if (found) return found;
+        }
+      }
+      return null;
     }
 
     handleNewElement(element) {
@@ -153,15 +185,16 @@
         return;
       }
 
-      if (this.isAssistantMessage(element)) {
-        this.startNewTurn(element);
+      const match = this.findAssistantAncestor(element);
+      if (match && !this.isUserMessage(match) && !this.isToolOutput(match)) {
+        this.startNewTurn(match);
         return;
       }
 
       for (const sel of this.selectors.assistantMessages) {
-        const match = element.querySelector(sel);
-        if (match && !this.isUserMessage(match) && !this.isToolOutput(match)) {
-          this.startNewTurn(match);
+        const childMatch = element.querySelector(sel);
+        if (childMatch && !this.isUserMessage(childMatch) && !this.isToolOutput(childMatch)) {
+          this.startNewTurn(childMatch);
           return;
         }
       }
@@ -172,6 +205,7 @@
 
       this.finishCurrentTurn();
 
+      console.log('[Antigravity Voice] Hooked into AI response stream.');
       this.activeResponseNode = node;
       this.lastProcessedText = '';
       this.streamer.reset();
@@ -190,6 +224,7 @@
 
         const newSentences = this.streamer.feed(delta);
         for (const sentence of newSentences) {
+          console.log('[Antigravity Voice] Speaking:', sentence);
           this.engine.enqueue(sentence);
         }
 
@@ -274,6 +309,7 @@
       if (this.activeResponseNode) {
         const finalSentences = this.streamer.flush();
         for (const sentence of finalSentences) {
+          console.log('[Antigravity Voice] Speaking final sentence:', sentence);
           this.engine.enqueue(sentence);
         }
         this.activeResponseNode = null;

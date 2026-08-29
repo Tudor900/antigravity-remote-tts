@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Antigravity Voice - AI Chat Text-to-Speech
 // @namespace    https://antigravity.google.com/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Streaming sentence-by-sentence text-to-speech for Antigravity Remote AI chat responses.
 // @author       Antigravity Pair Programmer
 // @match        https://antigravity.google.com/r/*
@@ -24,13 +24,11 @@
   }
   window.__ANTIGRAVITY_VOICE_LOADED__ = true;
 
-  // 1. Inject Styles
   const styleEl = document.createElement('style');
   styleEl.id = 'antigravity-voice-styles';
   styleEl.textContent = "/* Antigravity Voice Floating Control Pill */\n#agy-voice-pill {\n  position: fixed;\n  bottom: 24px;\n  right: 24px;\n  z-index: 999999;\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  background: rgba(28, 30, 36, 0.88);\n  backdrop-filter: blur(12px);\n  -webkit-backdrop-filter: blur(12px);\n  border: 1px solid rgba(255, 255, 255, 0.12);\n  border-radius: 28px;\n  padding: 6px 14px;\n  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);\n  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;\n  font-size: 13px;\n  color: #f1f3f4;\n  user-select: none;\n  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);\n}\n\n#agy-voice-pill:hover {\n  background: rgba(35, 38, 46, 0.96);\n  border-color: rgba(255, 255, 255, 0.22);\n  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);\n}\n\n#agy-voice-pill.agy-muted {\n  opacity: 0.75;\n  border-color: rgba(255, 255, 255, 0.08);\n}\n\n/* Status Indicator & Sound Wave */\n.agy-voice-indicator {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  padding-right: 4px;\n}\n\n.agy-voice-waves {\n  display: flex;\n  align-items: center;\n  gap: 2px;\n  height: 16px;\n}\n\n.agy-voice-wave {\n  width: 3px;\n  height: 6px;\n  background: #1a73e8;\n  border-radius: 2px;\n  transition: height 0.15s ease;\n}\n\n#agy-voice-pill.agy-speaking .agy-voice-wave:nth-child(1) {\n  animation: agy-wave-anim 0.8s ease-in-out infinite 0.1s;\n}\n#agy-voice-pill.agy-speaking .agy-voice-wave:nth-child(2) {\n  animation: agy-wave-anim 0.8s ease-in-out infinite 0.3s;\n}\n#agy-voice-pill.agy-speaking .agy-voice-wave:nth-child(3) {\n  animation: agy-wave-anim 0.8s ease-in-out infinite 0.2s;\n}\n\n@keyframes agy-wave-anim {\n  0%, 100% { height: 4px; background: #8ab4f8; }\n  50% { height: 16px; background: #4285f4; }\n}\n\n.agy-voice-status-text {\n  font-weight: 500;\n  color: #e8eaed;\n  min-width: 58px;\n}\n\n/* Action Buttons */\n.agy-voice-btn {\n  background: rgba(255, 255, 255, 0.08);\n  border: none;\n  border-radius: 14px;\n  color: #e8eaed;\n  cursor: pointer;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  padding: 4px 8px;\n  font-size: 12px;\n  font-weight: 500;\n  transition: background 0.15s ease, transform 0.1s ease;\n}\n\n.agy-voice-btn:hover {\n  background: rgba(255, 255, 255, 0.16);\n  transform: translateY(-1px);\n}\n\n.agy-voice-btn:active {\n  transform: translateY(0);\n}\n\n.agy-voice-btn.agy-stop-btn {\n  background: rgba(234, 67, 53, 0.2);\n  color: #f28b82;\n}\n\n.agy-voice-btn.agy-stop-btn:hover {\n  background: rgba(234, 67, 53, 0.35);\n  color: #fce8e6;\n}\n\n.agy-voice-btn.agy-rate-btn {\n  min-width: 42px;\n}\n\n.agy-voice-btn svg {\n  width: 14px;\n  height: 14px;\n  fill: currentColor;\n}\n";
   document.head.appendChild(styleEl);
 
-  // 2. Modules
   /**
  * Antigravity Voice - TextCleaner & SentenceStreamer
  * Prepares AI chat responses for speech synthesis by:
@@ -612,7 +610,6 @@
     }
 
     init() {
-      // Avoid duplicate injections
       if (document.getElementById('agy-voice-pill')) return;
 
       const pill = document.createElement('div');
@@ -645,11 +642,17 @@
       this.bindEvents();
       this.enableDrag(pill);
 
-      // Listen for speech engine state updates
       this.engine.on('stateChange', (state) => this.renderState(state));
     }
 
     bindEvents() {
+      // Audio unlock on user interaction
+      this.element.addEventListener('click', () => {
+        if (window.speechSynthesis) {
+          window.speechSynthesis.resume();
+        }
+      });
+
       // Stop button
       this.stopBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -712,7 +715,7 @@
       let startX, startY, origLeft, origTop;
 
       el.addEventListener('mousedown', (e) => {
-        if (e.target.closest('button')) return; // Allow clicking buttons
+        if (e.target.closest('button')) return;
         isDragging = true;
         startX = e.clientX;
         startY = e.clientY;
@@ -770,49 +773,36 @@
       this.options = options;
       this.streamer = new cleanerModule.SentenceStreamer(this.options);
 
-      this.observer = null;
+      this.observers = [];
       this.activeResponseNode = null;
       this.lastProcessedText = '';
       this.turnCompletionTimer = null;
-      this.debounceDelay = 1200; // ms without new tokens to consider stream complete
+      this.debounceDelay = 1200;
 
-      // Common selectors in Antigravity / AI chat web interfaces
+      // Selectors matching Antigravity's actual React DOM structure
       this.selectors = {
-        // Assistant message containers
+        // Antigravity markdown response containers
         assistantMessages: [
+          '.leading-relaxed.select-text',
+          '.animate-markdown',
+          '[data-testid="conversation-view"] div.leading-relaxed',
           '[data-role="assistant"]',
           '[data-message-author="model"]',
-          '[data-message-author="assistant"]',
           '.assistant-message',
-          '.agent-response',
           '.model-response',
-          '.cortex-response',
-          '.agent-message',
-          '.rendered-markdown',
-          '.chat-turn-response'
+          '.agent-response'
         ],
-        // User message containers to ignore
         userMessages: [
           '[data-role="user"]',
           '[data-message-author="user"]',
           '.user-message',
-          '.human-message',
-          '.user-turn'
+          '.human-message'
         ],
-        // Tool / terminal output blocks to ignore for conversational speech
         toolOutputs: [
           '.terminal-output',
           '.tool-execution',
           '.task-log',
-          '.system-message',
-          '.diff-view',
           '[data-step-type="tool"]'
-        ],
-        // Input fields for interruption detection
-        inputs: [
-          'textarea',
-          'input[type="text"]',
-          '[contenteditable="true"]'
         ]
       };
 
@@ -827,84 +817,135 @@
     }
 
     init() {
-      this.setupDOMObserver();
-      this.setupUserInterruption();
+      this.setupDOMObserver(document);
+      this.setupUserInterruption(document);
+
+      // Check if conversation view is already mounted
+      this.scanExistingDOM();
+
+      // Also observe any iframes if present
+      document.querySelectorAll('iframe').forEach(frame => {
+        try {
+          if (frame.contentDocument) {
+            this.setupDOMObserver(frame.contentDocument);
+            this.setupUserInterruption(frame.contentDocument);
+          }
+        } catch (e) {}
+      });
     }
 
-    setupDOMObserver() {
-      this.observer = new MutationObserver((mutations) => {
+    scanExistingDOM() {
+      const candidates = document.querySelectorAll(this.selectors.assistantMessages.join(', '));
+      if (candidates.length > 0) {
+        const lastCandidate = candidates[candidates.length - 1];
+        console.log('[Antigravity Voice] Found active response container in DOM.');
+        this.activeResponseNode = lastCandidate;
+        this.lastProcessedText = this.extractTextWithFileAnnouncements(lastCandidate);
+      }
+    }
+
+    setupDOMObserver(doc) {
+      if (!doc || !doc.body) return;
+
+      const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
           // Check for newly added nodes
           if (mutation.type === 'childList') {
             for (const node of mutation.addedNodes) {
               if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.tagName === 'IFRAME') {
+                  try {
+                    if (node.contentDocument) {
+                      this.setupDOMObserver(node.contentDocument);
+                      this.setupUserInterruption(node.contentDocument);
+                    }
+                  } catch (e) {}
+                }
                 this.handleNewElement(node);
               }
             }
           }
 
-          // Check for streaming text updates inside active response
+          // Streaming text or child updates
           if (mutation.type === 'characterData' || mutation.type === 'childList') {
             const targetEl = mutation.target.nodeType === Node.ELEMENT_NODE 
               ? mutation.target 
               : mutation.target.parentElement;
 
-            if (targetEl && this.isWithinActiveResponse(targetEl)) {
-              this.handleTextDelta();
+            if (targetEl) {
+              if (this.isWithinActiveResponse(targetEl)) {
+                this.handleTextDelta();
+              } else {
+                // Check if target is an assistant message container
+                const match = this.findAssistantAncestor(targetEl);
+                if (match) {
+                  this.startNewTurn(match);
+                }
+              }
             }
           }
         }
       });
 
-      this.observer.observe(document.body, {
+      observer.observe(doc.body, {
         childList: true,
         subtree: true,
         characterData: true
       });
+
+      this.observers.push(observer);
     }
 
-    /**
-     * Interruption: when the user starts typing and submits, cancel current speech
-     */
-    setupUserInterruption() {
-      // Listen for Enter key on inputs
-      document.addEventListener('keydown', (e) => {
+    setupUserInterruption(doc) {
+      if (!doc) return;
+
+      doc.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
-          const activeEl = document.activeElement;
+          const activeEl = doc.activeElement;
           if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT' || activeEl.isContentEditable)) {
             if (this.engine.isSpeaking) {
+              console.log('[Antigravity Voice] User prompt sent, stopping speech.');
               this.engine.stop();
             }
           }
         }
       }, true);
 
-      // Listen for send button clicks
-      document.addEventListener('click', (e) => {
+      doc.addEventListener('click', (e) => {
         const sendBtn = e.target.closest('button[type="submit"], button[aria-label*="send" i], button[title*="send" i]');
         if (sendBtn && this.engine.isSpeaking) {
+          console.log('[Antigravity Voice] Send clicked, stopping speech.');
           this.engine.stop();
         }
       }, true);
     }
 
+    findAssistantAncestor(element) {
+      for (const sel of this.selectors.assistantMessages) {
+        if (element.matches && element.matches(sel)) return element;
+        if (element.closest) {
+          const found = element.closest(sel);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
     handleNewElement(element) {
-      // Ignore user messages
       if (this.matchesAny(element, this.selectors.userMessages)) {
         return;
       }
 
-      // Check if this is an assistant response container
-      if (this.isAssistantMessage(element)) {
-        this.startNewTurn(element);
+      const match = this.findAssistantAncestor(element);
+      if (match && !this.isUserMessage(match) && !this.isToolOutput(match)) {
+        this.startNewTurn(match);
         return;
       }
 
-      // Check if child elements match
       for (const sel of this.selectors.assistantMessages) {
-        const match = element.querySelector(sel);
-        if (match && !this.isUserMessage(match) && !this.isToolOutput(match)) {
-          this.startNewTurn(match);
+        const childMatch = element.querySelector(sel);
+        if (childMatch && !this.isUserMessage(childMatch) && !this.isToolOutput(childMatch)) {
+          this.startNewTurn(childMatch);
           return;
         }
       }
@@ -913,9 +954,9 @@
     startNewTurn(node) {
       if (this.activeResponseNode === node) return;
 
-      // Finish previous turn if any was active
       this.finishCurrentTurn();
 
+      console.log('[Antigravity Voice] Hooked into AI response stream.');
       this.activeResponseNode = node;
       this.lastProcessedText = '';
       this.streamer.reset();
@@ -932,30 +973,23 @@
         const delta = currentText.slice(this.lastProcessedText.length);
         this.lastProcessedText = currentText;
 
-        // Feed to sentence streamer
         const newSentences = this.streamer.feed(delta);
         for (const sentence of newSentences) {
+          console.log('[Antigravity Voice] Speaking:', sentence);
           this.engine.enqueue(sentence);
         }
 
-        // Reset completion debounce timer
         this.resetCompletionTimer();
       }
     }
 
-    /**
-     * Extracts text content while detecting DOM code blocks (<pre><code>)
-     * and injecting file announcement tokens
-     */
     extractTextWithFileAnnouncements(rootNode) {
       const clone = rootNode.cloneNode(true);
 
-      // Remove tool/terminal output nodes from cloned element
       for (const sel of this.selectors.toolOutputs) {
         clone.querySelectorAll(sel).forEach(el => el.remove());
       }
 
-      // Process code blocks inside DOM: <pre> or code blocks with headers
       const preElements = clone.querySelectorAll('pre, .code-block, [data-code-block]');
       preElements.forEach((pre) => {
         if (this.options && this.options.announceFiles === false) {
@@ -966,7 +1000,6 @@
         let filename = '';
         let language = '';
 
-        // 1. Look for filename badge or header in DOM
         const header = pre.querySelector('.file-name, .filename, .header, [data-filename], .code-header');
         if (header) {
           filename = header.textContent.trim();
@@ -974,7 +1007,6 @@
           filename = pre.getAttribute('data-filename');
         }
 
-        // 2. Look for language class (e.g. language-python)
         const codeEl = pre.querySelector('code') || pre;
         const className = codeEl.className || '';
         const langMatch = className.match(/language-([a-zA-Z0-9_+]+)/i);
@@ -982,7 +1014,6 @@
           language = langMatch[1].toLowerCase();
         }
 
-        // 3. Check first line of code text for filename hint (e.g. # server.py)
         if (!filename && codeEl.textContent) {
           const firstLine = codeEl.textContent.trim().split('\n')[0];
           const hintMatch = firstLine.match(/^(?:(?:\/\/|#|\/\*|<!--)\s*(?:file(?:name)?|path)?[:\s]+([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9_]+))/i);
@@ -1029,6 +1060,7 @@
       if (this.activeResponseNode) {
         const finalSentences = this.streamer.flush();
         for (const sentence of finalSentences) {
+          console.log('[Antigravity Voice] Speaking final sentence:', sentence);
           this.engine.enqueue(sentence);
         }
         this.activeResponseNode = null;
@@ -1066,7 +1098,6 @@
 });
 
 
-  // 3. Initialize
   const Cleaner = window.AntigravityCleaner;
   const TTS = window.AntigravityTTS;
   const UI = window.AntigravityUI;
@@ -1076,7 +1107,6 @@
   const floatingUI = new UI.FloatingUI(speechEngine);
   const chatObserver = new Observer.ChatObserver(speechEngine, Cleaner, { announceFiles: true });
 
-  // Load preferences from localStorage if chrome.storage is not available
   try {
     const savedRate = localStorage.getItem('agy_voice_rate');
     const savedVoice = localStorage.getItem('agy_voice_name');

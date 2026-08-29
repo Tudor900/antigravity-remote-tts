@@ -32,7 +32,6 @@
     }
 
     init() {
-      // Avoid duplicate injections
       if (document.getElementById('agy-voice-pill')) return;
 
       const pill = document.createElement('div');
@@ -65,11 +64,17 @@
       this.bindEvents();
       this.enableDrag(pill);
 
-      // Listen for speech engine state updates
       this.engine.on('stateChange', (state) => this.renderState(state));
     }
 
     bindEvents() {
+      // Audio unlock on user interaction
+      this.element.addEventListener('click', () => {
+        if (window.speechSynthesis) {
+          window.speechSynthesis.resume();
+        }
+      });
+
       // Stop button
       this.stopBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -132,7 +137,7 @@
       let startX, startY, origLeft, origTop;
 
       el.addEventListener('mousedown', (e) => {
-        if (e.target.closest('button')) return; // Allow clicking buttons
+        if (e.target.closest('button')) return;
         isDragging = true;
         startX = e.clientX;
         startY = e.clientY;
