@@ -32,12 +32,17 @@
     }
 
     init() {
+      // If we are in the outer parent frame and an iframe exists, let the iframe host the pill
+      if (window === window.top && document.querySelector('iframe')) {
+        return;
+      }
+
       if (document.getElementById('agy-voice-pill')) return;
 
       const pill = document.createElement('div');
       pill.id = 'agy-voice-pill';
       pill.innerHTML = `
-        <div class="agy-voice-indicator">
+        <div class="agy-voice-indicator" style="cursor: pointer;" title="Click to test voice">
           <div class="agy-voice-waves">
             <span class="agy-voice-wave"></span>
             <span class="agy-voice-wave"></span>
@@ -68,12 +73,18 @@
     }
 
     bindEvents() {
-      // Audio unlock on user interaction
-      this.element.addEventListener('click', () => {
-        if (window.speechSynthesis) {
-          window.speechSynthesis.resume();
-        }
-      });
+      // Audio unlock & test on pill indicator click
+      const indicator = this.element.querySelector('.agy-voice-indicator');
+      if (indicator) {
+        indicator.addEventListener('click', () => {
+          if (window.speechSynthesis) {
+            window.speechSynthesis.resume();
+          }
+          if (!this.engine.isSpeaking) {
+            this.engine.enqueue('Antigravity voice connected.');
+          }
+        });
+      }
 
       // Stop button
       this.stopBtn.addEventListener('click', (e) => {
