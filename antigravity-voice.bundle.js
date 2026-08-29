@@ -133,6 +133,7 @@
     let cleaned = text;
 
     // 1. Process code blocks first
+    cleaned = cleaned.replace(/<style[\s\S]*?<\/style>/gi, ' ');
     cleaned = processCodeBlocks(cleaned, options);
 
     // 2. Normalize markdown headers (# Header -> Header.)
@@ -740,7 +741,7 @@
   /**
  * Antigravity Voice - ChatObserver
  * Observes the Antigravity Remote chat DOM for:
- * 1. Incoming AI responses and real-time streaming deltas.
+ * 1. Incoming AI responses via [aria-label="Agent response"].
  * 2. Code blocks and file badges.
  * 3. User submission events for instant speech interruption.
  */
@@ -761,32 +762,21 @@
       this.options = options;
       this.streamer = new cleanerModule.SentenceStreamer(this.options);
 
-      this.observers = [];
+      this.observer = null;
       this.activeResponseNode = null;
       this.lastProcessedText = '';
       this.turnCompletionTimer = null;
       this.debounceDelay = 1200;
 
-      // Selectors matching Antigravity's actual React DOM structure
+      // Antigravity exact DOM selectors
       this.selectors = {
-        // Antigravity markdown response containers
-        assistantMessages: [
-          '.leading-relaxed.select-text',
-          '.animate-markdown',
-          '[data-testid="conversation-view"] div.leading-relaxed',
-          '[data-role="assistant"]',
-          '[data-message-author="model"]',
-          '.assistant-message',
-          '.model-response',
-          '.agent-response'
-        ],
-        userMessages: [
-          '[data-role="user"]',
-          '[data-message-author="user"]',
-          '.user-message',
-          '.human-message'
-        ],
-        toolOutputs: [
+        agentArticle: '[aria-label="Agent response"]',
+        markdownContent: '.leading-relaxed.select-text',
+        userArticle: '[aria-label="User message"], [aria-label="User prompt"]',
+        ignoreElements: [
+          'style',
+          'script',
+          '[data-testid="worked-for-collapsible"]',
           '.terminal-output',
           '.tool-execution',
           '.task-log',
@@ -805,69 +795,53 @@
     }
 
     init() {
-      this.setupDOMObserver(document);
-      this.setupUserInterruption(document);
-
-      // Check if conversation view is already mounted
+      this.setupDOMObserver();
+      this.setupUserInterruption();
       this.scanExistingDOM();
-
-      // Also observe any iframes if present
-      document.querySelectorAll('iframe').forEach(frame => {
-        try {
-          if (frame.contentDocument) {
-            this.setupDOMObserver(frame.contentDocument);
-            this.setupUserInterruption(frame.contentDocument);
-          }
-        } catch (e) {}
-      });
     }
 
     scanExistingDOM() {
-      const candidates = document.querySelectorAll(this.selectors.assistantMessages.join(', '));
-      if (candidates.length > 0) {
-        const lastCandidate = candidates[candidates.length - 1];
-        console.log('[Antigravity Voice] Found active response container in DOM.');
-        this.activeResponseNode = lastCandidate;
-        this.lastProcessedText = this.extractTextWithFileAnnouncements(lastCandidate);
+      const articles = document.querySelectorAll(this.selectors.agentArticle);
+      if (articles.length > 0) {
+        const lastArticle = articles[articles.length - 1];
+        const content = lastArticle.querySelector(this.selectors.markdownContent) || lastArticle;
+        this.activeResponseNode = content;
+        this.lastProcessedText = this.extractCleanText(content);
+        console.log('[Antigravity Voice] Initialized on last agent response.');
       }
     }
 
-    setupDOMObserver(doc) {
-      if (!doc || !doc.body) return;
-
-      const observer = new MutationObserver((mutations) => {
+    setupDOMObserver() {
+      this.observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
-          // Check for newly added nodes
+          // Check newly added nodes
           if (mutation.type === 'childList') {
             for (const node of mutation.addedNodes) {
               if (node.nodeType === Node.ELEMENT_NODE) {
-                if (node.tagName === 'IFRAME') {
-                  try {
-                    if (node.contentDocument) {
-                      this.setupDOMObserver(node.contentDocument);
-                      this.setupUserInterruption(node.contentDocument);
-                    }
-                  } catch (e) {}
-                }
-                this.handleNewElement(node);
+                this.checkNewElement(node);
               }
             }
           }
 
-          // Streaming text or child updates
+          // Check streaming text updates inside active response
           if (mutation.type === 'characterData' || mutation.type === 'childList') {
             const targetEl = mutation.target.nodeType === Node.ELEMENT_NODE 
               ? mutation.target 
               : mutation.target.parentElement;
 
             if (targetEl) {
-              if (this.isWithinActiveResponse(targetEl)) {
+              if (this.activeResponseNode && (this.activeResponseNode === targetEl || this.activeResponseNode.contains(targetEl))) {
                 this.handleTextDelta();
               } else {
-                // Check if target is an assistant message container
-                const match = this.findAssistantAncestor(targetEl);
-                if (match) {
-                  this.startNewTurn(match);
+                // Check if target is inside an agent article
+                const article = targetEl.closest ? targetEl.closest(this.selectors.agentArticle) : null;
+                if (article) {
+                  const content = article.querySelector(this.selectors.markdownContent) || article;
+                  if (this.activeResponseNode !== content) {
+                    this.startNewTurn(content);
+                  } else {
+                    this.handleTextDelta();
+                  }
                 }
               }
             }
@@ -875,67 +849,25 @@
         }
       });
 
-      observer.observe(doc.body, {
+      this.observer.observe(document.body, {
         childList: true,
         subtree: true,
         characterData: true
       });
-
-      this.observers.push(observer);
     }
 
-    setupUserInterruption(doc) {
-      if (!doc) return;
-
-      doc.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          const activeEl = doc.activeElement;
-          if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT' || activeEl.isContentEditable)) {
-            if (this.engine.isSpeaking) {
-              console.log('[Antigravity Voice] User prompt sent, stopping speech.');
-              this.engine.stop();
-            }
-          }
-        }
-      }, true);
-
-      doc.addEventListener('click', (e) => {
-        const sendBtn = e.target.closest('button[type="submit"], button[aria-label*="send" i], button[title*="send" i]');
-        if (sendBtn && this.engine.isSpeaking) {
-          console.log('[Antigravity Voice] Send clicked, stopping speech.');
-          this.engine.stop();
-        }
-      }, true);
-    }
-
-    findAssistantAncestor(element) {
-      for (const sel of this.selectors.assistantMessages) {
-        if (element.matches && element.matches(sel)) return element;
-        if (element.closest) {
-          const found = element.closest(sel);
-          if (found) return found;
-        }
-      }
-      return null;
-    }
-
-    handleNewElement(element) {
-      if (this.matchesAny(element, this.selectors.userMessages)) {
-        return;
+    checkNewElement(element) {
+      // Check if element is or contains [aria-label="Agent response"]
+      let article = null;
+      if (element.matches && element.matches(this.selectors.agentArticle)) {
+        article = element;
+      } else if (element.querySelector) {
+        article = element.querySelector(this.selectors.agentArticle);
       }
 
-      const match = this.findAssistantAncestor(element);
-      if (match && !this.isUserMessage(match) && !this.isToolOutput(match)) {
-        this.startNewTurn(match);
-        return;
-      }
-
-      for (const sel of this.selectors.assistantMessages) {
-        const childMatch = element.querySelector(sel);
-        if (childMatch && !this.isUserMessage(childMatch) && !this.isToolOutput(childMatch)) {
-          this.startNewTurn(childMatch);
-          return;
-        }
+      if (article) {
+        const content = article.querySelector(this.selectors.markdownContent) || article;
+        this.startNewTurn(content);
       }
     }
 
@@ -944,7 +876,7 @@
 
       this.finishCurrentTurn();
 
-      console.log('[Antigravity Voice] Hooked into AI response stream.');
+      console.log('[Antigravity Voice] Detected new AI response stream!');
       this.activeResponseNode = node;
       this.lastProcessedText = '';
       this.streamer.reset();
@@ -955,7 +887,7 @@
     handleTextDelta() {
       if (!this.activeResponseNode) return;
 
-      const currentText = this.extractTextWithFileAnnouncements(this.activeResponseNode);
+      const currentText = this.extractCleanText(this.activeResponseNode);
 
       if (currentText.length > this.lastProcessedText.length) {
         const delta = currentText.slice(this.lastProcessedText.length);
@@ -971,13 +903,15 @@
       }
     }
 
-    extractTextWithFileAnnouncements(rootNode) {
+    extractCleanText(rootNode) {
       const clone = rootNode.cloneNode(true);
 
-      for (const sel of this.selectors.toolOutputs) {
+      // Strip unwanted style, script, tool outputs, and collapsible headers
+      for (const sel of this.selectors.ignoreElements) {
         clone.querySelectorAll(sel).forEach(el => el.remove());
       }
 
+      // Detect and replace code blocks with clean file name announcements
       const preElements = clone.querySelectorAll('pre, .code-block, [data-code-block]');
       preElements.forEach((pre) => {
         if (this.options && this.options.announceFiles === false) {
@@ -1056,29 +990,27 @@
       }
     }
 
-    isWithinActiveResponse(element) {
-      return this.activeResponseNode && (this.activeResponseNode === element || this.activeResponseNode.contains(element));
-    }
+    setupUserInterruption() {
+      // Enter key in input halts speech immediately
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          const activeEl = document.activeElement;
+          if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT' || activeEl.isContentEditable)) {
+            if (this.engine.isSpeaking) {
+              console.log('[Antigravity Voice] User typing next message, stopped speech.');
+              this.engine.stop();
+            }
+          }
+        }
+      }, true);
 
-    isAssistantMessage(element) {
-      if (this.isUserMessage(element) || this.isToolOutput(element)) return false;
-      return this.matchesAny(element, this.selectors.assistantMessages);
-    }
-
-    isUserMessage(element) {
-      return this.matchesAny(element, this.selectors.userMessages);
-    }
-
-    isToolOutput(element) {
-      return this.matchesAny(element, this.selectors.toolOutputs);
-    }
-
-    matchesAny(element, selectorList) {
-      for (const sel of selectorList) {
-        if (element.matches && element.matches(sel)) return true;
-        if (element.closest && element.closest(sel)) return true;
-      }
-      return false;
+      // Send button clicks halt speech
+      document.addEventListener('click', (e) => {
+        const sendBtn = e.target.closest('button[type="submit"], button[aria-label*="send" i], button[title*="send" i]');
+        if (sendBtn && this.engine.isSpeaking) {
+          this.engine.stop();
+        }
+      }, true);
     }
   }
 

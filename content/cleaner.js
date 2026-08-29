@@ -114,6 +114,7 @@
     let cleaned = text;
 
     // 1. Process code blocks first
+    cleaned = cleaned.replace(/<style[\s\S]*?<\/style>/gi, ' ');
     cleaned = processCodeBlocks(cleaned, options);
 
     // 2. Normalize markdown headers (# Header -> Header.)
