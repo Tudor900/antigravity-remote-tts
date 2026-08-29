@@ -113,8 +113,10 @@
 
     let cleaned = text;
 
-    // 1. Process code blocks first
+    // 1. Process code blocks and strip non-user content
     cleaned = cleaned.replace(/<style[\s\S]*?<\/style>/gi, ' ');
+    cleaned = cleaned.replace(/<(thought|thinking)[\s\S]*?<\/(thought|thinking)>/gi, ' ');
+    cleaned = cleaned.replace(/^(?:thought|thinking\s*process):?[\s\S]*?(?:\n\n+|$)/im, ' ');
     cleaned = processCodeBlocks(cleaned, options);
 
     // 2. Normalize markdown headers (# Header -> Header.)

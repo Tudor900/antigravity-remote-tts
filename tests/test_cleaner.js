@@ -81,3 +81,10 @@ assert(cleaned7.includes('Here is code:'), 'Should preserve surrounding text');
 console.log('✔ Test 7 passed: announceFiles: false toggle');
 
 console.log('\nAll 7 test suites passed successfully!');
+
+// Test 8: Thought stripping
+const md8 = `<thought>I am planning to inspect the database schema.</thought>Here is the final answer for you.`;
+const cleaned8 = Cleaner.cleanMarkdown(md8);
+assert(!cleaned8.includes('planning'), 'Should strip internal thoughts');
+assert.strictEqual(cleaned8, 'Here is the final answer for you.');
+console.log('✔ Test 8 passed: Thought stripping');
