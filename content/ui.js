@@ -1,10 +1,11 @@
 /**
  * Antigravity Voice - Floating UI Widget
  * Provides a floating pill for real-time status and playback controls:
- * - Stop / Silence button
+ * - Cross-frame postMessage synchronization
+ * - Animated soundwaves when speaking
+ * - Stop / Silence button (Esc)
  * - Mute / Unmute auto-TTS
  * - Speed multiplier cycling
- * - Drag-to-reposition
  */
 
 (function (root, factory) {
@@ -32,8 +33,9 @@
     }
 
     init() {
-      // If we are in the outer parent frame and an iframe exists, let the iframe host the pill
-      if (window === window.top && document.querySelector('iframe')) {
+      // If we are in an iframe, do not create a second duplicate pill — sync with parent via postMessage
+      if (window !== window.top) {
+        this.setupIframeSync();
         return;
       }
 
@@ -69,20 +71,55 @@
       this.bindEvents();
       this.enableDrag(pill);
 
+      // Listen for local engine changes
       this.engine.on('stateChange', (state) => this.renderState(state));
+
+      // Listen for cross-frame messages from child iframe
+      window.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'AGY_VOICE_STATE') {
+          this.renderState(e.data.state);
+        }
+      });
+    }
+
+    setupIframeSync() {
+      // In child iframe: forward all state changes to parent window
+      this.engine.on('stateChange', (state) => {
+        try {
+          window.parent.postMessage({ type: 'AGY_VOICE_STATE', state }, '*');
+        } catch (e) {}
+      });
+
+      // Listen for commands from parent pill
+      window.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'AGY_VOICE_CMD') {
+          if (e.data.action === 'stop') this.engine.stop();
+          if (e.data.action === 'setRate') this.engine.setRate(e.data.rate);
+          if (e.data.action === 'setEnabled') this.engine.setEnabled(e.data.enabled);
+        }
+      });
+    }
+
+    broadcastCommand(action, data = {}) {
+      const payload = Object.assign({ type: 'AGY_VOICE_CMD', action }, data);
+      window.postMessage(payload, '*');
+      document.querySelectorAll('iframe').forEach(f => {
+        try {
+          f.contentWindow?.postMessage(payload, '*');
+        } catch (e) {}
+      });
     }
 
     bindEvents() {
-      // Audio unlock & test on pill indicator click
+      // Audio test on pill indicator click
       const indicator = this.element.querySelector('.agy-voice-indicator');
       if (indicator) {
         indicator.addEventListener('click', () => {
           if (window.speechSynthesis) {
             window.speechSynthesis.resume();
           }
-          if (!this.engine.isSpeaking) {
-            this.engine.enqueue('Antigravity voice connected.');
-          }
+          this.engine.enqueue('Antigravity voice connected.');
+          this.broadcastCommand('testVoice');
         });
       }
 
@@ -90,14 +127,17 @@
       this.stopBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.engine.stop();
+        this.broadcastCommand('stop');
       });
 
       // Mute toggle
       this.muteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.engine.setEnabled(!this.engine.enabled);
+        const nextEnabled = !this.engine.enabled;
+        this.engine.setEnabled(nextEnabled);
+        this.broadcastCommand('setEnabled', { enabled: nextEnabled });
         if (chrome && chrome.storage && chrome.storage.local) {
-          chrome.storage.local.set({ enabled: this.engine.enabled });
+          chrome.storage.local.set({ enabled: nextEnabled });
         }
       });
 
@@ -108,6 +148,7 @@
         const newSpeed = this.speeds[this.speedIndex];
         this.engine.setRate(newSpeed);
         this.rateBtn.textContent = `${newSpeed}x`;
+        this.broadcastCommand('setRate', { rate: newSpeed });
         if (chrome && chrome.storage && chrome.storage.local) {
           chrome.storage.local.set({ rate: newSpeed });
         }
@@ -115,8 +156,9 @@
 
       // Keyboard shortcut: Escape immediately stops speech
       window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && this.engine.isSpeaking) {
+        if (e.key === 'Escape') {
           this.engine.stop();
+          this.broadcastCommand('stop');
         }
       });
     }
@@ -132,7 +174,7 @@
       } else if (state.isSpeaking) {
         this.element.classList.remove('agy-muted');
         this.element.classList.add('agy-speaking');
-        this.statusTextEl.textContent = state.queueLength > 0 ? `Speaking (${state.queueLength + 1})` : 'Speaking';
+        this.statusTextEl.textContent = (state.queueLength > 0) ? `Speaking (${state.queueLength + 1})` : 'Speaking';
         this.muteBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>`;
       } else {
         this.element.classList.remove('agy-muted', 'agy-speaking');
@@ -140,7 +182,9 @@
         this.muteBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>`;
       }
 
-      this.rateBtn.textContent = `${state.rate}x`;
+      if (state.rate) {
+        this.rateBtn.textContent = `${state.rate}x`;
+      }
     }
 
     enableDrag(el) {
