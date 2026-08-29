@@ -1,0 +1,122 @@
+/* Antigravity Voice Floating Control Pill */
+#agy-voice-pill {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(28, 30, 36, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 28px;
+  padding: 6px 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  color: #f1f3f4;
+  user-select: none;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#agy-voice-pill:hover {
+  background: rgba(35, 38, 46, 0.96);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+}
+
+#agy-voice-pill.agy-muted {
+  opacity: 0.75;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Status Indicator & Sound Wave */
+.agy-voice-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.agy-voice-waves {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+
+.agy-voice-wave {
+  width: 3px;
+  height: 6px;
+  background: #1a73e8;
+  border-radius: 2px;
+  transition: height 0.15s ease;
+}
+
+#agy-voice-pill.agy-speaking .agy-voice-wave:nth-child(1) {
+  animation: agy-wave-anim 0.8s ease-in-out infinite 0.1s;
+}
+#agy-voice-pill.agy-speaking .agy-voice-wave:nth-child(2) {
+  animation: agy-wave-anim 0.8s ease-in-out infinite 0.3s;
+}
+#agy-voice-pill.agy-speaking .agy-voice-wave:nth-child(3) {
+  animation: agy-wave-anim 0.8s ease-in-out infinite 0.2s;
+}
+
+@keyframes agy-wave-anim {
+  0%, 100% { height: 4px; background: #8ab4f8; }
+  50% { height: 16px; background: #4285f4; }
+}
+
+.agy-voice-status-text {
+  font-weight: 500;
+  color: #e8eaed;
+  min-width: 58px;
+}
+
+/* Action Buttons */
+.agy-voice-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 14px;
+  color: #e8eaed;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.agy-voice-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  transform: translateY(-1px);
+}
+
+.agy-voice-btn:active {
+  transform: translateY(0);
+}
+
+.agy-voice-btn.agy-stop-btn {
+  background: rgba(234, 67, 53, 0.2);
+  color: #f28b82;
+}
+
+.agy-voice-btn.agy-stop-btn:hover {
+  background: rgba(234, 67, 53, 0.35);
+  color: #fce8e6;
+}
+
+.agy-voice-btn.agy-rate-btn {
+  min-width: 42px;
+}
+
+.agy-voice-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}

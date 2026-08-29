@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Antigravity Voice - Text to Speech",
+  "version": "1.0.0",
+  "description": "Real-time streaming text-to-speech for Google Antigravity Remote AI chat responses.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Antigravity Voice Settings",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://antigravity.google.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://antigravity.google.com/r/*",
+        "https://antigravity.google.com/*",
+        "http://localhost:*/*",
+        "http://127.0.0.1:*/*"
+      ],
+      "js": [
+        "content/cleaner.js",
+        "content/tts.js",
+        "content/ui.js",
+        "content/observer.js",
+        "content/main.js"
+      ],
+      "css": [
+        "content/styles.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

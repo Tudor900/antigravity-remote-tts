@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity Voice Settings</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-brand">
+        <div class="logo-icon">
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+        </div>
+        <div class="header-titles">
+          <h1>Antigravity Voice</h1>
+          <p class="subtitle">AI Chat Text-to-Speech</p>
+        </div>
+      </div>
+      <div class="header-toggle">
+        <label class="switch" title="Toggle Auto-TTS">
+          <input type="checkbox" id="toggle-enabled" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+    </header>
+
+    <!-- Main Settings Form -->
+    <div class="settings-group">
+      <!-- Voice Selection -->
+      <div class="control-field">
+        <label for="voice-select">Voice</label>
+        <select id="voice-select" class="styled-select">
+          <option value="">Loading available voices...</option>
+        </select>
+      </div>
+
+      <!-- Speech Rate Slider -->
+      <div class="control-field">
+        <div class="field-label-row">
+          <label for="rate-slider">Speed</label>
+          <span id="rate-val" class="field-val">1.0x</span>
+        </div>
+        <input type="range" id="rate-slider" min="0.5" max="2.0" step="0.05" value="1.0" class="styled-range">
+      </div>
+
+      <!-- Pitch Slider -->
+      <div class="control-field">
+        <div class="field-label-row">
+          <label for="pitch-slider">Pitch</label>
+          <span id="pitch-val" class="field-val">1.0</span>
+        </div>
+        <input type="range" id="pitch-slider" min="0.5" max="1.5" step="0.05" value="1.0" class="styled-range">
+      </div>
+
+      <!-- Code & File Announcement -->
+      <div class="checkbox-field">
+        <label class="custom-checkbox">
+          <input type="checkbox" id="announce-files" checked>
+          <span class="checkmark"></span>
+          <span class="checkbox-label">Announce file names for code snippets</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions-row">
+      <button id="btn-test" class="btn btn-primary">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+        Test Voice
+      </button>
+      <button id="btn-stop" class="btn btn-secondary">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M6 6h12v12H6z"/></svg>
+        Stop
+      </button>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>Antigravity Remote Companion</span>
+      <span class="version">v1.0.0</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
